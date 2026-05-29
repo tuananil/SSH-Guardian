@@ -1,1 +1,13 @@
+# Core GUI
 PyQt5==5.15.10
+
+# Chart rendering (matplotlib's Qt5Agg backend)
+matplotlib>=3.7,<4
+
+# Optional: MaxMind GeoLite2 country lookup (graceful fallback if mmdb missing)
+maxminddb>=2.5,<3
+
+# (sqlite3 is part of the Python standard library)
+
+# --- Build only (do not include in runtime image) ---
+# pyinstaller>=6.0

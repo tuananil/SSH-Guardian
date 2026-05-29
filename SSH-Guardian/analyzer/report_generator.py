@@ -4,10 +4,6 @@ report_generator.py
 AnalysisResult -> incident_report.txt (insan okunaklı SOC raporu).
 
 Format ilhamı: NIST SP 800-61 (Computer Security Incident Handling).
-Bölümler:
-  1. Executive Summary
-  2. Detayli Findings (IP başına)
-  3. Recommendations
 """
 
 import os
@@ -15,24 +11,18 @@ from datetime import datetime
 
 from analyzer.detector import AnalysisResult
 from utils.constants import (
-    APP_NAME,
-    APP_VERSION,
-    REPORTS_DIR,
-    DEFAULT_REPORT_FILENAME,
+    APP_NAME, APP_VERSION,
+    REPORTS_DIR, DEFAULT_REPORT_FILENAME,
 )
 from utils.helpers import ensure_dir, format_count
 
 
 class ReportGenerator:
-    """
-    Tek sorumluluğu rapor üretmek. AnalysisResult -> string + dosya.
-    """
+    """AnalysisResult'tan incident_report.txt üretir."""
 
     def __init__(self, output_dir: str = REPORTS_DIR) -> None:
         self.output_dir = output_dir
 
-    # ------------------------------------------------------------------
-    # Public API
     # ------------------------------------------------------------------
     def generate(
         self,
@@ -40,24 +30,19 @@ class ReportGenerator:
         source_file: str = "N/A",
         filename: str = DEFAULT_REPORT_FILENAME,
     ) -> str:
-        """
-        Raporu üretir, diske yazar ve TAM yolu döndürür.
-        """
         ensure_dir(self.output_dir)
-        report_text = self._build_text(result, source_file)
+        text = self._build_text(result, source_file)
         full_path = os.path.join(self.output_dir, filename)
         with open(full_path, "w", encoding="utf-8") as f:
-            f.write(report_text)
+            f.write(text)
         return full_path
 
-    # ------------------------------------------------------------------
-    # Rapor metnini ÜRETEN (saf fonksiyon - kolay test edilir)
     # ------------------------------------------------------------------
     def _build_text(self, result: AnalysisResult, source_file: str) -> str:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         lines: list[str] = []
 
-        # ====== HEADER ======
+        # ----- HEADER -----
         lines.append("=" * 72)
         lines.append(f"  {APP_NAME} — SSH BRUTE-FORCE INCIDENT REPORT")
         lines.append(f"  Generated : {ts}")
@@ -66,7 +51,7 @@ class ReportGenerator:
         lines.append("=" * 72)
         lines.append("")
 
-        # ====== 1) EXECUTIVE SUMMARY ======
+        # ----- 1) EXECUTIVE SUMMARY -----
         lines.append("[1] EXECUTIVE SUMMARY")
         lines.append("-" * 72)
         lines.append(f"  Total log events parsed      : {format_count(result.total_events)}")
@@ -79,12 +64,20 @@ class ReportGenerator:
             ta = result.top_attacker
             lines.append(
                 f"  Top attacker IP              : {ta.ip} "
-                f"({format_count(ta.failed_attempts)} failed attempts, "
-                f"risk={ta.risk_level})"
+                f"({format_count(ta.failed_attempts)} failed, "
+                f"risk={ta.risk_level}, country={ta.country})"
+            )
+
+        # Saatlik pik
+        if result.hourly_failures:
+            peak_hour, peak_count = max(result.hourly_failures, key=lambda t: t[1])
+            lines.append(
+                f"  Peak attack hour             : {peak_hour} "
+                f"({format_count(peak_count)} failed attempts)"
             )
         lines.append("")
 
-        # ====== 2) TOP TARGETED USERNAMES ======
+        # ----- 2) TOP USERNAMES -----
         lines.append("[2] MOST TARGETED USERNAMES")
         lines.append("-" * 72)
         if result.top_usernames:
@@ -94,19 +87,27 @@ class ReportGenerator:
             lines.append("  No failed login data.")
         lines.append("")
 
-        # ====== 3) DETAYLI BULGULAR (IP başına) ======
-        lines.append("[3] DETAILED FINDINGS PER ATTACKER IP")
+        # ----- 3) COUNTRY BREAKDOWN -----
+        if result.country_counts:
+            lines.append("[3] GEOGRAPHIC DISTRIBUTION (top 10)")
+            lines.append("-" * 72)
+            for country, count in result.country_counts:
+                lines.append(f"  - {country:<25} {format_count(count)} failed attempts")
+            lines.append("")
+
+        # ----- 4) DETAILED FINDINGS -----
+        lines.append("[4] DETAILED FINDINGS PER ATTACKER IP")
         lines.append("-" * 72)
         if not result.attackers:
             lines.append("  No attacker activity detected.")
         else:
             for idx, a in enumerate(result.attackers, start=1):
-                lines.append(f"  #{idx}  IP: {a.ip}")
+                lines.append(f"  #{idx}  IP: {a.ip}  [{a.country}]")
                 lines.append(f"      Risk Level        : {a.risk_level}")
                 lines.append(f"      Failed Attempts   : {format_count(a.failed_attempts)}")
                 lines.append(f"      Successful Logins : {format_count(a.successful_logins)}")
                 if a.is_breached:
-                    lines.append("      ⚠  POSSIBLE BREACH: successful login after failures!")
+                    lines.append("      !! POSSIBLE BREACH: successful login after failures !!")
                 lines.append(
                     f"      Usernames Tried   : "
                     f"{', '.join(sorted(a.usernames_tried))[:200]}"
@@ -115,8 +116,8 @@ class ReportGenerator:
                 lines.append(f"      Last Seen         : {a.last_seen or 'N/A'}")
                 lines.append("")
 
-        # ====== 4) ÖNERİLER ======
-        lines.append("[4] RECOMMENDATIONS")
+        # ----- 5) RECOMMENDATIONS -----
+        lines.append("[5] RECOMMENDATIONS")
         lines.append("-" * 72)
         lines.append("  - Block HIGH-risk IPs at firewall (iptables / ufw / cloud SG).")
         lines.append("  - Enforce SSH key-based authentication; disable password auth.")
